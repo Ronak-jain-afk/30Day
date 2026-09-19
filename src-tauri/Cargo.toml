@@ -2,7 +2,7 @@
 name = "thirtyday"
 version = "1.0.0"
 description = "30Day - turn any 30-day learning timetable into an interactive tracker"
-authors = ["you"]
+authors = ["Ronak-jain-afk"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

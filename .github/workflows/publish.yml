@@ -1,0 +1,49 @@
+name: 'publish-linux'
+
+# Builds the Linux bundles (.AppImage + .deb) natively on Ubuntu and
+# attaches them to the pushed tag's GitHub release as a draft.
+# Push a tag like `v1.1.0` to ship Linux alongside the manual
+# Windows installers uploaded with `gh release create`.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-linux:
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: install Linux webview deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf xdg-utils
+
+      - name: install frontend dependencies
+        run: npm install
+
+      - name: run checks
+        run: |
+          npx tsc --noEmit
+          npx vitest run
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseDraft: true
