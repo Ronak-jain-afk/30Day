@@ -150,6 +150,12 @@ export async function updateTaskNotes(taskId: string, notes: string): Promise<vo
   await (await getDb()).execute("UPDATE tasks SET notes = $1 WHERE id = $2", [notes, taskId]);
 }
 
+export async function updateTaskDetails(taskId: string, description: string, estimatedMinutes: number): Promise<void> {
+  await (await getDb()).execute("UPDATE tasks SET description = $1, estimated_minutes = $2 WHERE id = $3", [
+    description, Math.max(0, Math.round(estimatedMinutes) || 0), taskId,
+  ]);
+}
+
 export async function updatePlanNotes(planId: string, notes: string): Promise<void> {
   await (await getDb()).execute("UPDATE plans SET notes = $1 WHERE id = $2", [notes, planId]);
 }

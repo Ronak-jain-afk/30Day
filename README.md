@@ -30,8 +30,9 @@ Open app → see today's day → see today's tasks → complete tasks
 
 - **Import any 30-day timetable** — paste a human-readable plan, get instant
   validation with day/line-specific errors, a preview, then Days 1–30
-- **Day view** — topic, goal, time estimate, checkable tasks, task notes,
-  resource links (open in your browser), day notes
+- **Day view** — topic, goal, time estimate, checkable tasks, per-task
+  details (description + time estimate), task notes, resource links
+  (open in your browser), day notes
 - **Dashboard** — overall %, tasks done/remaining, current + longest streak,
   today's tasks, 30-day activity graph, up-next preview
 - **Calendar & Progress views** — per-day completion table, totals, averages,
@@ -41,7 +42,8 @@ Open app → see today's day → see today's tasks → complete tasks
 - **Multiple plans** — create, switch, rename, reset, delete (with confirmation)
 - **Export roundtrip** — export back to the exact timetable format and re-import
   losslessly; JSON export for full backups
-- **Dark / light themes**, keyboard navigation (←/→ days, Esc closes dialogs)
+- **Dark / light themes**, date-format setting, daily reminders (while the
+  app is open), keyboard navigation (Ctrl+K palette, ←/→ days, Esc closes dialogs)
 
 ## Timetable syntax
 

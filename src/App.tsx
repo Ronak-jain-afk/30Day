@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import "./App.css";
 import {
   computeStreaks,
@@ -23,20 +24,32 @@ import {
   updateDayNotes,
   updatePlanNotes,
   updateTaskNotes,
+  updateTaskDetails,
   type FullDay,
   type FullPlan,
   type PlanSummary,
 } from "./lib/db";
 import { demoTimetable } from "./lib/demo";
 import { AI_PROMPT } from "./lib/ai-prompt";
+import { lastFired, loadPrefs, localYmd, markFired, reminderDue, savePrefs } from "./lib/reminders";
 import appIcon from "../src-tauri/icons/128x128.png";
 
 type View = "dashboard" | "day" | "calendar" | "progress" | "settings";
 type Theme = "dark" | "light";
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
-const fmtDate = (iso: string) =>
-  new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+type DateFmt = "md" | "dmy" | "iso";
+const loadDateFmt = (): DateFmt => {
+  const v = localStorage.getItem("dateFormat");
+  return v === "dmy" || v === "iso" ? v : "md";
+};
+const fmtDate = (iso: string, fmt: DateFmt = loadDateFmt()): string => {
+  if (fmt === "iso") return iso;
+  const d = new Date(`${iso}T00:00:00`);
+  return fmt === "dmy"
+    ? `${d.getDate()} ${d.toLocaleDateString(undefined, { month: "short" })}`
+    : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
 const fmtMins = (m?: number) => {
   if (!m) return "—";
   return m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`;
@@ -52,6 +65,8 @@ export default function App() {
   const [dayNum, setDayNum] = useState(1);
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [, bumpDates] = useState(0);
   const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -117,10 +132,15 @@ export default function App() {
     setView("day");
   };
 
-  // ← → navigate days, Esc closes modals
+  // Ctrl/Cmd+K palette, ← → navigate days, Esc closes overlays
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setImportOpen(false); setExportOpen(false); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
+      if (e.key === "Escape") { setImportOpen(false); setExportOpen(false); setPaletteOpen(false); }
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (view === "day" && e.key === "ArrowLeft") openDay(dayNum - 1);
@@ -134,6 +154,43 @@ export default function App() {
     await fn();
     if (activeId) { await refreshPlan(activeId); await refreshPlans(); }
   };
+
+  // Daily reminder: once per day at the set minute, only while tasks remain open.
+  // Fires only while the app is running — there is no background scheduler in v1.
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const prefs = loadPrefs();
+        const days = plan?.days ?? [];
+        const open = days.some((d) => d.tasks.some((t) => !t.completed));
+        if (!reminderDue(prefs, new Date(), lastFired(), open)) return;
+        if (!(await isPermissionGranted()) && (await requestPermission()) !== "granted") return;
+        const day = days.find((d) => d.tasks.some((t) => !t.completed));
+        markFired(localYmd(new Date()));
+        await sendNotification({
+          title: "30Day",
+          body: day
+            ? `Day ${day.dayNumber} — ${day.topic}: ${day.tasks.filter((t) => !t.completed).length} task(s) open`
+            : "Time for today's tasks",
+        });
+      } catch { /* reminders are best-effort; never break the app */ }
+    };
+    const id = window.setInterval(tick, 30_000);
+    void tick();
+    return () => window.clearInterval(id);
+  }, [plan]);
+
+  // ponytail: plain data + substring filter, no fuzzy-search dependency
+  const palItems: PalItem[] = [
+    { id: "v-dashboard", label: "Go to Dashboard", run: () => setView("dashboard") },
+    { id: "v-today", label: "Go to Today", run: () => stats && openDay(stats.currentDay.dayNumber) },
+    { id: "v-calendar", label: "Go to Calendar", run: () => setView("calendar") },
+    { id: "v-progress", label: "Go to Progress", run: () => setView("progress") },
+    { id: "v-settings", label: "Go to Settings", run: () => setView("settings") },
+    { id: "a-new", label: "New plan from timetable", run: () => setImportOpen(true) },
+    ...plans.map((p): PalItem => ({ id: `p-${p.id}`, label: `Open plan: ${p.name}`, run: () => openPlan(p.id) })),
+    ...(plan?.days.map((d): PalItem => ({ id: `d-${d.dayNumber}`, label: `Day ${d.dayNumber} — ${d.topic}`, run: () => openDay(d.dayNumber) })) ?? []),
+  ];
 
   if (dbError) {
     return (
@@ -175,6 +232,7 @@ export default function App() {
           ))}
         </div>
         <button className="btn ghost" onClick={() => setImportOpen(true)}>+ New plan</button>
+        <div className="kbd-hint muted small" title="Open command palette">Ctrl K — commands</div>
         {plan && stats && (
           <div className="side-foot">
             <div className="side-plan">{plan.name}</div>
@@ -190,6 +248,8 @@ export default function App() {
               theme={theme}
               setTheme={setTheme}
               plan={null}
+              dfmt={loadDateFmt()}
+              onDfmt={(f) => { localStorage.setItem("dateFormat", f); bumpDates((t) => t + 1); }}
               onNotes={async () => {}}
               onRename={async () => {}}
               onReset={() => {}}
@@ -214,6 +274,7 @@ export default function App() {
             onToggle={(id, c) => mutate(() => toggleTask(id, c))}
             onNotes={(id, n) => mutate(() => updateDayNotes(id, n))}
             onTaskNotes={(id, n) => mutate(() => updateTaskNotes(id, n))}
+            onTaskDetails={(id, d, m) => mutate(() => updateTaskDetails(id, d, m))}
             onPrev={() => openDay(dayNum - 1)}
             onNext={() => openDay(dayNum + 1)}
             onCompleteDay={(id) => mutate(async () => {
@@ -233,6 +294,8 @@ export default function App() {
             theme={theme}
             setTheme={setTheme}
             plan={plan}
+            dfmt={loadDateFmt()}
+            onDfmt={(f) => { localStorage.setItem("dateFormat", f); bumpDates((t) => t + 1); }}
             onNotes={(n) => mutate(() => updatePlanNotes(plan.id, n))}
             onRename={(n) => mutate(() => renamePlan(plan.id, n))}
             onReset={() => { if (window.confirm(`Reset ALL progress for “${plan.name}”? ${stats.done} completed task(s) across ${stats.daysDone} day(s) will become unchecked. Plan structure and notes stay.`)) mutate(() => resetPlan(plan.id)); }}
@@ -264,12 +327,60 @@ export default function App() {
         />
       )}
       {exportOpen && plan && <ExportModal plan={plan} onClose={() => setExportOpen(false)} />}
+      {paletteOpen && <CommandPalette items={palItems} onClose={() => setPaletteOpen(false)} />}
     </div>
   );
 }
 
 function NavBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return <button className={`nav${active ? " active" : ""}`} onClick={onClick}>{label}</button>;
+}
+
+interface PalItem {
+  id: string;
+  label: string;
+  run: () => void;
+}
+
+function CommandPalette({ items, onClose }: { items: PalItem[]; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const needle = q.trim().toLowerCase();
+  const filtered = (needle
+    ? items.filter((i) => i.label.toLowerCase().includes(needle))
+    : items
+  ).slice(0, 12);
+  const go = (i: PalItem) => { onClose(); i.run(); };
+  return (
+    <div className="modal-back pal-back" onClick={onClose}>
+      <div className="modal pal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Command palette">
+        <input
+          className="text pal-input"
+          autoFocus
+          placeholder="Type a day, plan, or view…"
+          aria-label="Command palette"
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setSel(0); }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(filtered.length - 1, s + 1)); }
+            else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(0, s - 1)); }
+            else if (e.key === "Enter" && filtered[sel]) go(filtered[sel]);
+          }}
+        />
+        <ul className="pal-list">
+          {filtered.map((i, idx) => (
+            <li key={i.id}>
+              <button className={`pal-item${idx === sel ? " sel" : ""}`} onClick={() => go(i)}
+                onMouseEnter={() => setSel(idx)}>
+                {i.label}
+              </button>
+            </li>
+          ))}
+          {filtered.length === 0 && <li className="muted small pal-empty">No matches</li>}
+        </ul>
+      </div>
+    </div>
+  );
 }
 
 interface Stats {
@@ -367,21 +478,39 @@ function Dashboard({ plan, stats, openDay, onToggle }: {
   );
 }
 
-function DayView({ day, onToggle, onNotes, onTaskNotes, onPrev, onNext, onCompleteDay, onResetDay }: {
+function DayView({ day, onToggle, onNotes, onTaskNotes, onTaskDetails, onPrev, onNext, onCompleteDay, onResetDay }: {
   day: FullDay | undefined;
   plan: FullPlan;
   onToggle: (id: string, c: boolean) => void;
   onNotes: (id: string, n: string) => void;
   onTaskNotes: (id: string, n: string) => void;
+  onTaskDetails: (id: string, description: string, minutes: number) => void;
   onPrev: () => void; onNext: () => void;
   onCompleteDay: (id: string) => void;
   onResetDay: (id: string) => void;
 }) {
   const [notes, setNotes] = useState(day?.notes ?? "");
   useEffect(() => setNotes(day?.notes ?? ""), [day?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [editDesc, setEditDesc] = useState("");
+  const [editMins, setEditMins] = useState("");
   if (!day) return <p className="muted">No such day.</p>;
   const r = dayProgress(day);
   const done = day.tasks.filter((t) => t.completed).length;
+  const expand = (t: FullDay["tasks"][number]) => {
+    setExpanded(t.id);
+    setEditDesc(t.description ?? "");
+    setEditMins(t.estimatedMinutes ? String(t.estimatedMinutes) : "");
+  };
+  const saveDetails = () => {
+    const t = day.tasks.find((x) => x.id === expanded);
+    if (!t) { setExpanded(null); return; }
+    const mins = Math.max(0, parseInt(editMins, 10) || 0);
+    if (editDesc !== (t.description ?? "") || mins !== (t.estimatedMinutes ?? 0)) {
+      onTaskDetails(t.id, editDesc, mins);
+    }
+    setExpanded(null);
+  };
   return (
     <div>
       <div className="kicker">DAY {day.dayNumber} · {fmtDate(day.date)}{day.goal ? ` · ${day.goal}` : ""}</div>
@@ -395,7 +524,11 @@ function DayView({ day, onToggle, onNotes, onTaskNotes, onPrev, onNext, onComple
               <label className="task">
                 <input type="checkbox" checked={t.completed} onChange={(e) => onToggle(t.id, e.target.checked)} />
                 <span className={t.completed ? "done" : ""}>{t.title}</span>
+                {t.estimatedMinutes ? <span className="muted small">· {fmtMins(t.estimatedMinutes)}</span> : null}
               </label>
+              <button className="btn ghost small-btn" onClick={() => (expanded === t.id ? setExpanded(null) : expand(t))}>
+                {expanded === t.id ? "Hide" : "Details"}
+              </button>
               <input
                 className="inline-note"
                 placeholder="task note…"
@@ -403,6 +536,22 @@ function DayView({ day, onToggle, onNotes, onTaskNotes, onPrev, onNext, onComple
                 key={`${t.id}-${t.notes}`}
                 onBlur={(e) => { if (e.target.value !== t.notes) onTaskNotes(t.id, e.target.value); }}
               />
+              {expanded === t.id && (
+                <div className="task-details">
+                  <textarea
+                    className="notes" rows={2} placeholder="Task details…"
+                    aria-label={`Details for ${t.title}`}
+                    value={editDesc} onChange={(e) => setEditDesc(e.target.value)}
+                  />
+                  <div className="row">
+                    <label className="muted small">Minutes <input type="number" className="text mins-input" min={0}
+                      aria-label={`Estimated minutes for ${t.title}`}
+                      value={editMins} onChange={(e) => setEditMins(e.target.value)} /></label>
+                    <button className="btn primary" onClick={saveDetails}>Save details</button>
+                    <button className="btn ghost" onClick={() => setExpanded(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -498,13 +647,27 @@ function ProgressView({ plan, stats, openDay }: { plan: FullPlan; stats: Stats; 
   );
 }
 
-function SettingsView({ theme, setTheme, plan, onNotes, onRename, onReset, onDelete, onExport }: {
+function SettingsView({ theme, setTheme, plan, dfmt, onDfmt, onNotes, onRename, onReset, onDelete, onExport }: {
   theme: string; setTheme: (t: "dark" | "light") => void; plan: FullPlan | null;
+  dfmt: DateFmt; onDfmt: (f: DateFmt) => void;
   onNotes: (n: string) => void; onRename: (n: string) => void;
   onReset: () => void; onDelete: () => void; onExport: () => void;
 }) {
   const [name, setName] = useState(plan?.name ?? "");
   useEffect(() => setName(plan?.name ?? ""), [plan?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [rem, setRem] = useState(loadPrefs);
+  const [remDenied, setRemDenied] = useState(false);
+  useEffect(() => { isPermissionGranted().then((g) => setRemDenied(!g)).catch(() => {}); }, []);
+  const toggleRem = async (on: boolean) => {
+    if (on) {
+      const ok = (await isPermissionGranted().catch(() => false)) || (await requestPermission().catch(() => "denied")) === "granted";
+      setRemDenied(!ok);
+      if (!ok) return;
+    }
+    const next = { ...rem, enabled: on };
+    setRem(next);
+    savePrefs(next);
+  };
   return (
     <div>
       <h1>{plan ? "Plan settings" : "Settings"}</h1>
@@ -527,6 +690,27 @@ function SettingsView({ theme, setTheme, plan, onNotes, onRename, onReset, onDel
             <button key={t} className={`btn${theme === t ? " primary" : ""}`} onClick={() => setTheme(t)}>{t}</button>
           ))}
         </div>
+        <div className="kicker">DATE FORMAT</div>
+        <div className="row" role="radiogroup" aria-label="Date format">
+          {(["md", "dmy", "iso"] as const).map((f) => (
+            <button key={f} className={`btn${dfmt === f ? " primary" : ""}`} onClick={() => onDfmt(f)}>
+              {f === "md" ? "Sep 22" : f === "dmy" ? "22 Sep" : "2026-09-22"}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section>
+        <div className="kicker">REMINDERS</div>
+        <label className="task">
+          <input type="checkbox" checked={rem.enabled} onChange={(e) => toggleRem(e.target.checked)} />
+          <span>Daily reminder</span>
+        </label>
+        <div className="row">
+          <label className="muted small">Time <input type="time" value={rem.time}
+            onChange={(e) => { const next = { ...rem, time: e.target.value }; setRem(next); savePrefs(next); }} /></label>
+        </div>
+        {remDenied && rem.enabled && <p className="muted small">Notifications are blocked — allow them in Windows Settings to receive reminders.</p>}
+        <p className="muted small">Fires once a day while the app is open and tasks remain.</p>
       </section>
       {plan && (
       <section>
