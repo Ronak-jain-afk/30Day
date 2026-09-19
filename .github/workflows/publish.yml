@@ -46,4 +46,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
+          releaseName: '30Day ${{ github.ref_name }}'
+          releaseBody: 'Linux bundles (.AppImage + .deb, plus .rpm).'
           releaseDraft: true
