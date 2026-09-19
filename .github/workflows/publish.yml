@@ -41,6 +41,9 @@ jobs:
           npx tsc --noEmit
           npx vitest run
 
+      # Releases are created published via `gh release create`, so the action
+      # must target non-draft releases. `releaseDraft: true` would refuse to
+      # touch them and create a duplicate draft instead.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,4 +51,4 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: '30Day ${{ github.ref_name }}'
           releaseBody: 'Linux bundles (.AppImage + .deb, plus .rpm).'
-          releaseDraft: true
+          releaseDraft: false
