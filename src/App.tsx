@@ -28,6 +28,7 @@ import {
   type PlanSummary,
 } from "./lib/db";
 import { demoTimetable } from "./lib/demo";
+import { AI_PROMPT } from "./lib/ai-prompt";
 import appIcon from "../src-tauri/icons/128x128.png";
 
 type View = "dashboard" | "day" | "calendar" | "progress" | "settings";
@@ -558,6 +559,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   const [text, setText] = useState("");
   const [start, setStart] = useState(todayIso());
   const [busy, setBusy] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const { plan, errors } = useImport(text);
 
@@ -611,6 +613,9 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
             if (text.trim() && !window.confirm("Replace the current timetable text with the demo?")) return;
             setText(demoTimetable());
           }}>Load demo timetable</button>
+          <button className="btn ghost" title="Copy a prompt you can give to any AI to generate a timetable for this app"
+            onClick={async () => { await navigator.clipboard.writeText(AI_PROMPT); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500); }}
+          >{copiedPrompt ? "Prompt copied ✓" : "Copy AI prompt"}</button>
         </div>
         <textarea
           className="notes import-box"

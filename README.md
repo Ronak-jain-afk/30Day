@@ -68,6 +68,68 @@ Rules: exactly 30 `DAY n` blocks (1–30, no duplicates) · every day needs
 resources are `- URL` or `- Title | URL` (http/https only) · blank lines and
 whitespace are free · out-of-order days are normalized on import.
 
+## Generate a plan with AI
+
+Copy the prompt below into any AI assistant, replace `[TOPIC]`, and paste its
+output straight into **30Day → Import timetable**:
+
+```text
+Create a 30-day learning timetable about [TOPIC] for the 30Day desktop app.
+
+YOUR OUTPUT IS MACHINE-PARSED. Treat the format below as a strict data
+format, not as a style suggestion. Suppress all Markdown habits: no "*" or
+numbered list markers (use "- " only), no [Title](https://…) links (use
+"- Title | https://…" instead), no backslash escapes, no bold/italics/
+headings, no code fences, no explanations before or after the timetable.
+
+PLAN: <a short plan name>
+DURATION: 30 days
+
+DAY 1
+TOPIC: <day topic>
+GOAL: <one-sentence goal>
+TIME: 3h
+
+TASKS:
+- <task 1>
+- <task 2>
+- <task 3>
+
+RESOURCES:
+- https://<real, working URL>
+- <Title> | https://<real, working URL>
+
+DAY 2
+TOPIC: <day topic>
+GOAL: <one-sentence goal>
+TIME: 2h
+
+TASKS:
+- <task 1>
+- <task 2>
+- <task 3>
+
+RESOURCES:
+- https://<real, working URL>
+
+Repeat the same structure through DAY 30.
+
+Strict rules:
+- Exactly 30 DAY blocks: DAY 1 through DAY 30, each exactly once, in order.
+- Every day MUST have TOPIC:, GOAL:, TIME:, and TASKS: with at least 3
+  lines starting with "- " (hyphen + space, one task per line).
+- TIME: must look like 3h, 2h, 90m, or 1h30m.
+- RESOURCES: lines must contain the bare URL, never a Markdown link:
+    RIGHT: - https://docs.blender.org/manual/en/latest/
+    RIGHT: - Blender Manual | https://docs.blender.org/manual/en/latest/
+    WRONG: - [Blender Manual](https://docs.blender.org/manual/en/latest/)
+  Never invent a URL — omit resources you are unsure about.
+- Cover beginner → intermediate → advanced across the 30 days, with
+  concrete, actionable tasks (read/practice/build/solve/implement/review).
+- Before responding, silently validate against every rule above and fix
+  violations before outputting.
+```
+
 ## Development
 
 ```powershell
