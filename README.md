@@ -12,7 +12,7 @@ and works fully offline.
 
 ## Install
 
-Download **`30Day_1.1.0_x64-setup.exe`** (or the `.msi`) from the
+Download **`30Day_1.2.0_x64-setup.exe`** (or the `.msi`) from the
 [latest release](https://github.com/Ronak-jain-afk/30Day/releases) and run it.
 No admin rights required for the NSIS installer.
 
@@ -41,7 +41,8 @@ Open app → see today's day → see today's tasks → complete tasks
   task; missing a day just breaks the run, nothing punishes you
 - **Multiple plans** — create, switch, rename, reset, delete (with confirmation)
 - **Export roundtrip** — export back to the exact timetable format and re-import
-  losslessly; JSON export for full backups
+  losslessly; JSON export for full backups; save/open both via files
+- **In-app updates** — Settings → Check for updates (signed, from GitHub Releases)
 - **Dark / light themes**, date-format setting, daily reminders (while the
   app is open), keyboard navigation (Ctrl+K palette, ←/→ days, Esc closes dialogs)
 
