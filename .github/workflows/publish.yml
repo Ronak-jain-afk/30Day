@@ -61,18 +61,10 @@ jobs:
 
       - name: stage all bundles + signatures (explicit copy, no glob matching)
         run: |
-          echo "=== FULL bundle tree (ground truth) ==="
-          find src-tauri/target/release/bundle -type f | sort
-          # Updater archives materialize after the main bundles; wait for them.
-          for i in $(seq 1 24); do
-            if ls src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz >/dev/null 2>&1; then break; fi
-            sleep 5
-          done
-          ls src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz
           mkdir -p release-staging
           find src-tauri/target/release/bundle \( \
             -name '*.deb' -o -name '*.rpm' -o \
-            -name '*.AppImage' -o -name '*.AppImage.tar.gz' -o \
+            -name '*.AppImage' -o \
             -name '*.sig' \) -exec cp {} release-staging/ \;
           ls -la release-staging
 
@@ -112,18 +104,8 @@ jobs:
       - name: stage all bundles + signatures (explicit copy, no glob matching)
         shell: pwsh
         run: |
-          Write-Output "=== FULL bundle tree (ground truth) ==="
-          Get-ChildItem -LiteralPath "src-tauri/target/release/bundle" -Recurse -File |
-            Select-Object FullName, Length
-          # Updater archives materialize after the main bundles; wait for them.
-          $found = $false
-          for ($i = 0; $i -lt 24 -and -not $found; $i++) {
-            if (Get-ChildItem -LiteralPath "src-tauri/target/release/bundle/nsis" -Filter "*.nsis.zip" -File -ErrorAction SilentlyContinue) { $found = $true }
-            else { Start-Sleep -Seconds 5 }
-          }
-          if (-not $found) { throw "nsis.zip never materialized" }
           New-Item -ItemType Directory -Path release-staging -Force | Out-Null
-          Get-ChildItem -LiteralPath "src-tauri/target/release/bundle" -Recurse -File -Include *.exe, *.nsis.zip, *.msi, *.sig |
+          Get-ChildItem -LiteralPath "src-tauri/target/release/bundle" -Recurse -File -Include *.exe, *.msi, *.sig |
             Copy-Item -Destination release-staging/ -Force
           Get-ChildItem -LiteralPath release-staging
 
@@ -163,7 +145,6 @@ jobs:
       - name: write merged latest.json (only targets actually built)
         run: |
           python3 - <<'EOF'
-          import glob
           import json
           import os
           from datetime import datetime, timezone
@@ -172,20 +153,24 @@ jobs:
           repo = os.environ["REPO"]
           version = tag[1:] if tag.startswith("v") else tag
 
-          # Updater consumes these artifacts (NOT the manual installers):
-          #   Windows -> *-setup.nsis.zip | Linux -> *.AppImage.tar.gz
-          # (recursive globs: download-artifact preserves subdirectories.
-          #  NOTE: python glob needs recursive=True for ** to recurse.)
-          wanted = {
-              "windows-x86_64": ("dist-assets/**/*-setup.nsis.zip",),
-              "linux-x86_64": ("dist-assets/**/*.AppImage.tar.gz",),
-          }
+          # Tauri v2 updater consumes the installers DIRECTLY (no archives):
+          #   Windows -> *-setup.exe (+ .sig) | Linux -> *.AppImage (+ .sig)
+          # (.nsis.zip / .tar.gz are a Tauri v1 layout and are not produced.)
+          def updater_bundle(target: str) -> str:
+              cands = []
+              for root, _, files in os.walk("dist-assets"):
+                  for fn in files:
+                      if target == "windows-x86_64" and fn.endswith("-setup.exe"):
+                          cands.append(os.path.join(root, fn))
+                      elif target == "linux-x86_64" and fn.endswith(".AppImage") and not fn.endswith(".sig"):
+                          cands.append(os.path.join(root, fn))
+              if len(cands) != 1:
+                  raise SystemExit(f"expected exactly 1 {target} updater bundle, found {cands}")
+              return cands[0]
+
           platforms = {}
-          for target, patterns in wanted.items():
-              matches = [p for pat in patterns for p in glob.glob(pat, recursive=True)]
-              if len(matches) != 1:
-                  raise SystemExit(f"expected exactly 1 {target} updater bundle, found {matches}")
-              bundle = matches[0]
+          for target in ("windows-x86_64", "linux-x86_64"):
+              bundle = updater_bundle(target)
               sig_path = bundle + ".sig"
               if not os.path.isfile(sig_path):
                   raise SystemExit(f"missing signature sidecar: {sig_path}")
