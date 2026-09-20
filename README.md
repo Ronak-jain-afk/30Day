@@ -7,7 +7,7 @@ progress stats, streaks, and a GitHub-style 30-day activity graph.
 No account. No server. No cloud. Everything lives in SQLite on your machine
 and works fully offline.
 
-![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)
 ![stack](https://img.shields.io/badge/stack-Tauri%20v2%20%C2%B7%20React%20%C2%B7%20Rust%20%C2%B7%20SQLite-green)
 
 ## Install
@@ -15,6 +15,9 @@ and works fully offline.
 Download **`30Day_1.2.1_x64-setup.exe`** (or the `.msi`) from the
 [latest release](https://github.com/Ronak-jain-afk/30Day/releases) and run it.
 No admin rights required for the NSIS installer.
+
+On Linux, grab the `.AppImage` (portable) or `.deb` from the same release.
+Every tagged release builds Windows + Linux installers in CI automatically.
 
 > Your data lives in `%APPDATA%\com.thirtyday.app\thirtyday.db`.
 > Back it up any time via **Settings → Export timetable / JSON**.
@@ -28,14 +31,16 @@ Open app → see today's day → see today's tasks → complete tasks
 
 ## Features
 
-- **Import any 30-day timetable** — paste a human-readable plan, get instant
-  validation with day/line-specific errors, a preview, then Days 1–30
+- **Import any 30-day timetable** — paste text or open a `.txt`/`.md` file,
+  get instant validation with day/line-specific errors, a preview, then
+  Days 1–30. A built-in **Copy AI prompt** button gives you a prompt that
+  makes AI assistants generate import-ready timetables
 - **Day view** — topic, goal, time estimate, checkable tasks, per-task
   details (description + time estimate), task notes, resource links
   (open in your browser), day notes
 - **Dashboard** — overall %, tasks done/remaining, current + longest streak,
   today's tasks, 30-day activity graph, up-next preview
-- **Calendar & Progress views** — per-day completion table, totals, averages,
+- **Calendar & Progress views** — per-day completion table, totals,
   most productive day
 - **Streaks without gamification pressure** — a day counts with ≥ 1 completed
   task; missing a day just breaks the run, nothing punishes you
@@ -140,8 +145,12 @@ npm install
 npm run tauri dev   # desktop app with live SQLite
 npm test            # vitest: parser, validation, roundtrip, streaks
 npm run build       # frontend bundle only
-npm run tauri build # Windows installers (.msi + NSIS .exe)
+npm run tauri build # installers for your current OS
 ```
+
+Requires Node 22+ and a Rust toolchain. Every `v*` tag builds Windows +
+Linux installers in CI (`.github/workflows/publish.yml`) and attaches them
+to the release with a signed updater manifest.
 
 Requires Node 22+ and a Rust toolchain.
 
@@ -154,10 +163,12 @@ TIMETABLE → PARSER → LEARNING PLAN → DAYS → TASKS → PROGRESS → ACTIV
 | Layer | Location | Notes |
 |---|---|---|
 | Timetable parser + validation + export + streak math | `src/lib/timetable.ts` | Framework-free, fully unit-tested |
+| Backup import/export mapping | `src/lib/backup.ts` | Strict validation, unit-tested |
+| Reminders + AI-prompt text | `src/lib/reminders.ts`, `src/lib/ai-prompt.ts` | Pure logic, unit-tested |
 | SQLite access | `src/lib/db.ts` | Thin wrapper over `@tauri-apps/plugin-sql` (`sqlite:thirtyday.db`) |
-| UI | `src/App.tsx` | Sidebar, dashboard, day, calendar, progress, settings, import/export |
+| UI | `src/App.tsx` | Sidebar, dashboard, day, calendar, progress, settings, import/export, command palette |
 | Demo data | `src/lib/demo.ts` | 30-day lab plan (legal practice environments only) |
-| Desktop shell | `src-tauri/` | Registers `tauri-plugin-sql` + one squashed migration; no custom Tauri commands in v1 |
+| Desktop shell | `src-tauri/` | Plugins (sql, dialog, fs, opener, notification, process, updater) + one squashed migration; no custom Tauri commands |
 
 Database tables: `plans → days → tasks` plus `resources`; notes live on each
 row; foreign keys with `ON DELETE CASCADE`. One migration (`init`) in
@@ -167,10 +178,12 @@ closing, restarting, and crashes without losing progress.
 ## Security & privacy
 
 Local-only by design: imported data is validated, URLs are checked, SQL uses
-parameterized queries, Tauri capabilities are minimal
-(`core` + `opener` + `sql` execute/select/load), and there is no analytics,
-telemetry, or network access beyond the links you click.
+parameterized queries, Tauri capabilities are minimal (core, dialog, scoped
+text-file read/write, opener, notification, process restart, updater,
+sql execute/select/load), and there is no analytics or telemetry. The only
+network access is the links you click and the update check against GitHub
+Releases.
 
 ## License
 
-MIT — see `LICENSE` (to be added).
+MIT — see `LICENSE`.

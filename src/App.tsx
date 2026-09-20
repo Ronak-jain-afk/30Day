@@ -781,7 +781,7 @@ function SettingsView({ theme, setTheme, plan, dfmt, onDfmt, onNotes, onRename, 
         </div>
       </section>
       )}
-      <p className="muted small">30Day v1.2.1 — local-first. Data lives in SQLite (<code>thirtyday.db</code>); no account, no network needed.</p>
+      <p className="muted small">30Day v1.2.1 — local-first. Data lives in SQLite (<code>thirtyday.db</code>); no account, works offline.</p>
     </div>
   );
 }
