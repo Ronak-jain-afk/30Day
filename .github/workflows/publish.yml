@@ -148,9 +148,10 @@ jobs:
 
           # Updater consumes these artifacts (NOT the manual installers):
           #   Windows -> *-setup.nsis.zip | Linux -> *.AppImage.tar.gz
+          # (recursive globs: download-artifact preserves subdirectories)
           wanted = {
-              "windows-x86_64": ("dist-assets/*-setup.nsis.zip",),
-              "linux-x86_64": ("dist-assets/*.AppImage.tar.gz",),
+              "windows-x86_64": ("dist-assets/**/*-setup.nsis.zip",),
+              "linux-x86_64": ("dist-assets/**/*.AppImage.tar.gz",),
           }
           platforms = {}
           for target, patterns in wanted.items():
