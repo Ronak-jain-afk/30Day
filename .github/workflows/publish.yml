@@ -148,14 +148,15 @@ jobs:
 
           # Updater consumes these artifacts (NOT the manual installers):
           #   Windows -> *-setup.nsis.zip | Linux -> *.AppImage.tar.gz
-          # (recursive globs: download-artifact preserves subdirectories)
+          # (recursive globs: download-artifact preserves subdirectories.
+          #  NOTE: python glob needs recursive=True for ** to recurse.)
           wanted = {
               "windows-x86_64": ("dist-assets/**/*-setup.nsis.zip",),
               "linux-x86_64": ("dist-assets/**/*.AppImage.tar.gz",),
           }
           platforms = {}
           for target, patterns in wanted.items():
-              matches = [p for pat in patterns for p in glob.glob(pat)]
+              matches = [p for pat in patterns for p in glob.glob(pat, recursive=True)]
               if len(matches) != 1:
                   raise SystemExit(f"expected exactly 1 {target} updater bundle, found {matches}")
               bundle = matches[0]
