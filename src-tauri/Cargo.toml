@@ -1,6 +1,6 @@
 [package]
 name = "thirtyday"
-version = "1.2.0"
+version = "1.2.1"
 description = "30Day - turn any 30-day learning timetable into an interactive tracker"
 authors = ["Ronak-jain-afk"]
 edition = "2021"

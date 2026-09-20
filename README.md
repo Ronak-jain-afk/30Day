@@ -12,7 +12,7 @@ and works fully offline.
 
 ## Install
 
-Download **`30Day_1.2.0_x64-setup.exe`** (or the `.msi`) from the
+Download **`30Day_1.2.1_x64-setup.exe`** (or the `.msi`) from the
 [latest release](https://github.com/Ronak-jain-afk/30Day/releases) and run it.
 No admin rights required for the NSIS installer.
 
