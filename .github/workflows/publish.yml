@@ -52,3 +52,5 @@ jobs:
           releaseName: '30Day ${{ github.ref_name }}'
           releaseBody: 'Linux bundles (.AppImage + .deb, plus .rpm).'
           releaseDraft: false
+          # latest.json must point at NSIS (the updater-supported bundle), not MSI
+          updaterJsonPreferNsis: true

@@ -52,6 +52,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            Ok(())
+        })
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:thirtyday.db", migrations)

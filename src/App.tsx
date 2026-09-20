@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 import {
   computeStreaks,
@@ -32,6 +36,7 @@ import {
 import { demoTimetable } from "./lib/demo";
 import { AI_PROMPT } from "./lib/ai-prompt";
 import { lastFired, loadPrefs, localYmd, markFired, reminderDue, savePrefs } from "./lib/reminders";
+import { fullPlanFromBackup, importBackup, type PlanBackup } from "./lib/backup";
 import appIcon from "../src-tauri/icons/128x128.png";
 
 type View = "dashboard" | "day" | "calendar" | "progress" | "settings";
@@ -341,6 +346,15 @@ interface PalItem {
   label: string;
   run: () => void;
 }
+
+type UpdState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "current" }
+  | { kind: "available"; version: string }
+  | { kind: "downloading" }
+  | { kind: "installed" }
+  | { kind: "error"; message: string };
 
 function CommandPalette({ items, onClose }: { items: PalItem[]; onClose: () => void }) {
   const [q, setQ] = useState("");
@@ -658,6 +672,7 @@ function SettingsView({ theme, setTheme, plan, dfmt, onDfmt, onNotes, onRename, 
   const [rem, setRem] = useState(loadPrefs);
   const [remDenied, setRemDenied] = useState(false);
   useEffect(() => { isPermissionGranted().then((g) => setRemDenied(!g)).catch(() => {}); }, []);
+  const [upd, setUpd] = useState<UpdState>({ kind: "idle" });
   const toggleRem = async (on: boolean) => {
     if (on) {
       const ok = (await isPermissionGranted().catch(() => false)) || (await requestPermission().catch(() => "denied")) === "granted";
@@ -667,6 +682,27 @@ function SettingsView({ theme, setTheme, plan, dfmt, onDfmt, onNotes, onRename, 
     const next = { ...rem, enabled: on };
     setRem(next);
     savePrefs(next);
+  };
+  const checkUpdates = async () => {
+    setUpd({ kind: "checking" });
+    try {
+      const update = await check();
+      setUpd(update ? { kind: "available", version: update.version } : { kind: "current" });
+    } catch (e) {
+      setUpd({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  const installUpdate = async () => {
+    if (upd.kind !== "available") return;
+    setUpd({ kind: "downloading" });
+    try {
+      const update = await check();
+      if (!update) { setUpd({ kind: "current" }); return; }
+      await update.downloadAndInstall();
+      setUpd({ kind: "installed" });
+    } catch (e) {
+      setUpd({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+    }
   };
   return (
     <div>
@@ -712,6 +748,24 @@ function SettingsView({ theme, setTheme, plan, dfmt, onDfmt, onNotes, onRename, 
         {remDenied && rem.enabled && <p className="muted small">Notifications are blocked — allow them in Windows Settings to receive reminders.</p>}
         <p className="muted small">Fires once a day while the app is open and tasks remain.</p>
       </section>
+      <section>
+        <div className="kicker">UPDATES</div>
+        <div className="row">
+          <button className="btn" disabled={upd.kind === "checking" || upd.kind === "downloading"} onClick={checkUpdates}>
+            {upd.kind === "checking" ? "Checking…" : "Check for updates"}
+          </button>
+          {upd.kind === "available" && (
+            <button className="btn primary" onClick={installUpdate}>Download & install v{upd.version}</button>
+          )}
+          {upd.kind === "installed" && (
+            <button className="btn primary" onClick={() => relaunch()}>Restart to apply update</button>
+          )}
+        </div>
+        {upd.kind === "current" && <p className="muted small">You’re on the latest version.</p>}
+        {upd.kind === "downloading" && <p className="muted small">Downloading and installing… keep the app open.</p>}
+        {upd.kind === "installed" && <p className="muted small">Update installed — restart to switch to it.</p>}
+        {upd.kind === "error" && <p className="muted small">Update check failed: {upd.message}</p>}
+      </section>
       {plan && (
       <section>
         <div className="kicker">BACKUP</div>
@@ -745,7 +799,8 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   const [busy, setBusy] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const { plan, errors } = useImport(text);
+  const [backup, setBackup] = useState<PlanBackup | null>(null);
+  const { plan, errors } = useImport(backup ? "" : text);
 
   const tryClose = useCallback(() => {
     if (text.trim() && !window.confirm("Discard this timetable text? Nothing has been imported yet.")) return;
@@ -774,16 +829,43 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   }, [errors]);
 
   const doImport = async () => {
-    if (!plan) return;
+    if (!plan && !backup) return;
     setBusy(true);
     setImportError(null);
     try {
-      const id = await createPlan(plan, start);
+      const id = backup ? await importBackup(backup, start) : await createPlan(plan!, start);
       await onImported(id);
     } catch (e) {
       setImportError(`Could not save the plan: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openFile = async () => {
+    setImportError(null);
+    const picked = await open({
+      multiple: false,
+      filters: [
+        { name: "30Day files", extensions: ["txt", "md", "json"] },
+        { name: "Timetable", extensions: ["txt", "md"] },
+        { name: "30Day backup", extensions: ["json"] },
+      ],
+    }).catch(() => null);
+    if (typeof picked !== "string") return; // cancelled
+    try {
+      const content = await readTextFile(picked);
+      if (picked.toLowerCase().endsWith(".json")) {
+        const data = fullPlanFromBackup(content);
+        setBackup(data);
+        setText("");
+        setStart(data.startDate);
+      } else {
+        setBackup(null);
+        setText(content);
+      }
+    } catch (e) {
+      setImportError(`Could not open file: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -795,17 +877,19 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
           <label className="muted small">Start date <input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
           <button className="btn ghost" onClick={() => {
             if (text.trim() && !window.confirm("Replace the current timetable text with the demo?")) return;
+            setBackup(null);
             setText(demoTimetable());
           }}>Load demo timetable</button>
           <button className="btn ghost" title="Copy a prompt you can give to any AI to generate a timetable for this app"
             onClick={async () => { await navigator.clipboard.writeText(AI_PROMPT); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500); }}
           >{copiedPrompt ? "Prompt copied ✓" : "Copy AI prompt"}</button>
+          <button className="btn ghost" onClick={openFile}>Open file…</button>
         </div>
         <textarea
           className="notes import-box"
           placeholder={"PLAN: My 30-Day Challenge\nDURATION: 30 days\n\nDAY 1\nTOPIC: …\nGOAL: …\nTIME: 3h\n\nTASKS:\n- …\n\nRESOURCES:\n- https://…"}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { setText(e.target.value); setBackup(null); }}
           rows={12}
         />
         {text.trim() && errors.length > 0 && (
@@ -818,6 +902,13 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
               </div>
             ))}
             <p className="muted small">Fix these issues and try again. Nothing was imported.</p>
+          </div>
+        )}
+        {backup && (
+          <div className="preview">
+            <div className="kicker">BACKUP PREVIEW</div>
+            <p><strong>{backup.name}</strong> — {backup.days.length} days · {backup.days.reduce((n, d) => n + d.tasks.length, 0)} tasks · {backup.days.reduce((n, d) => n + d.tasks.filter((t) => t.completed).length, 0)} already complete</p>
+            <p className="muted small">Restores progress, notes, and dates. Day dates follow the start date above.</p>
           </div>
         )}
         {plan && (
@@ -833,7 +924,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
         )}
         <div className="row">
           <button className="btn ghost" onClick={tryClose}>Cancel</button>
-          <button className="btn primary" disabled={!plan || busy} onClick={doImport}>{busy ? "Importing…" : "Import plan"}</button>
+          <button className="btn primary" disabled={(!plan && !backup) || busy} onClick={doImport}>{busy ? "Importing…" : "Import plan"}</button>
         </div>
         {importError && <div className="errors" role="alert"><strong>Import failed.</strong><div>{importError}</div></div>}
       </div>
@@ -847,6 +938,22 @@ function ExportModal({ plan, onClose }: { plan: FullPlan; onClose: () => void })
     ? exportTimetable(plan)
     : JSON.stringify({ ...plan, exportedAt: new Date().toISOString() }, null, 2);
   const [copied, setCopied] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveFile = async () => {
+    setSaveError(null);
+    const ext = tab === "timetable" ? "txt" : "json";
+    const base = (plan.name.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "plan").slice(0, 60);
+    const path = await save({
+      defaultPath: `30day-${base}.${ext}`,
+      filters: [{ name: tab === "timetable" ? "Timetable" : "30Day backup", extensions: [ext] }],
+    }).catch(() => null);
+    if (typeof path !== "string") return; // cancelled
+    try {
+      await writeTextFile(path, text);
+    } catch (e) {
+      setSaveError(`Could not save file: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   return (
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Export plan">
@@ -860,9 +967,11 @@ function ExportModal({ plan, onClose }: { plan: FullPlan; onClose: () => void })
           >
             {copied ? "Copied ✓" : "Copy"}
           </button>
+          <button className="btn ghost" onClick={saveFile}>Save file…</button>
         </div>
         <textarea className="notes import-box" readOnly value={text} rows={14} />
         <p className="muted small">Paste timetable text back into Import to restore. JSON is a full backup.</p>
+        {saveError && <div className="errors" role="alert"><div>{saveError}</div></div>}
         <div className="row"><button className="btn ghost" onClick={onClose}>Close</button></div>
       </div>
     </div>

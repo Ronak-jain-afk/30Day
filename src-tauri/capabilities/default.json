@@ -5,8 +5,13 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "dialog:default",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
     "opener:default",
     "notification:default",
+    "process:default",
+    "updater:default",
     "sql:default",
     "sql:allow-execute"
   ]
